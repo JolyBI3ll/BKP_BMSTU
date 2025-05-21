@@ -1,0 +1,9 @@
+{
+  "name": "Draw.io integration",
+  "slug": "drawio",
+  "description": "Edit Taiga attachments directly in draw.io",
+  "type": "attachment-action",
+  "module": "taigaContrib.drawio",
+  "template": "/plugins/drawio/drawio.html",
+  "js": "plugins/drawio/drawio.js"
+}

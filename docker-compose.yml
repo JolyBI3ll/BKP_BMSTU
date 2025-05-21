@@ -110,16 +110,8 @@ services:
     networks:
       - taiga
     volumes:
-      - ./taiga-contrib-drawio/taiga_front_drawio:/opt/plugins/taiga_front_drawio
-    #  - ./conf.json:/usr/share/nginx/html/conf.json
-#    command: >
-#      /bin/sh -c "
-#        cp -r /opt/plugins/taiga_front_drawio /usr/src/taiga-front/plugins/ &&
-#        cd /usr/src/taiga-front &&
-#        npm run plugin taiga_front_drawio &&   # регистрируем в angular.json
-#        npm run build -- --configuration=production &&
-#        nginx -g 'daemon off;'
-#      "
+      - ./taiga-contrib-drawio/front/dist:/usr/share/nginx/html/plugins/drawio
+      - ./custom-front/conf.override.json:/usr/share/nginx/html/conf.json
 
   taiga-events:
     image: taigaio/taiga-events:latest
