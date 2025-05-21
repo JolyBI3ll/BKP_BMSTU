@@ -7,7 +7,6 @@ class DrawioAttachment(models.Model):
         on_delete=models.CASCADE,
         related_name="drawio_meta",
     )
-    # будем хранить оригинальную XML-структуру диаграммы
     xml_data = models.TextField(blank=True, default="")
 
     created = models.DateTimeField(auto_now_add=True)
