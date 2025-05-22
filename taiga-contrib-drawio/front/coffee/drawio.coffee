@@ -66,9 +66,13 @@ angular.module('taigaContrib.drawio', [])
 
           else if data.event == 'save'
             $http.post("/api/v1/drawio/#{attachmentId}/", { xml_data: data.xml })
-            drawioWindow.postMessage JSON.stringify({ action: 'exit' }), '*'
+            .then ->
+              alert("Файл успешно сохранен!")
+            .catch (err) ->
+              alert("Ошибка при сохранении: " + JSON.stringify(err))
 
           else if data.event == 'exit'
+            drawioWindow.postMessage JSON.stringify({ action: 'exit' }), '*'
             window.removeEventListener 'message', handler
 
         window.addEventListener 'message', handler
