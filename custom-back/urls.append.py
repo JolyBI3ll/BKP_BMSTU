@@ -15,4 +15,8 @@ urlpatterns += [
     path('api/v1/drawio/<int:attachment_id>/reset/', DrawioViewSet.as_view({
         'delete': 'reset'
     }), name='drawio-reset'),
+
+    path('api/v1/drawio/<int:attachment_id>/generate/', DrawioViewSet.as_view({
+        'post': 'generate_from_prompt'
+    }), name='drawio-generate-from-prompt'),
 ]

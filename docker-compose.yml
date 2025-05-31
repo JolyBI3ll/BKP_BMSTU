@@ -29,6 +29,7 @@ x-environment:
   ENABLE_TELEMETRY: "${ENABLE_TELEMETRY}"
   PUBLIC_REGISTER_ENABLED: "True"
   # ...your customizations go here
+  GIGACHAT_AUTH_KEY: "${GIGACHAT_AUTH_KEY}"
 
 x-volumes:
   &default-back-volumes
