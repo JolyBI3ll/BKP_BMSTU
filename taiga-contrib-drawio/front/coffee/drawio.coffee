@@ -1,8 +1,7 @@
 angular.module('taigaContrib.drawio', [])
 .run [
-  '$http', '$timeout', '$compile', '$document', '$window', '$rootScope'
-  ($http, $timeout, $compile, $document, $window, $rootScope) ->
-
+  '$http', '$timeout', '$compile', '$document', '$window', '$rootScope', '$location'
+  ($http, $timeout, $compile, $document, $window, $rootScope, $location) ->
     drawioHost = 'https://embed.diagrams.net'
     attachmentsByName = {}
 
@@ -33,13 +32,80 @@ angular.module('taigaContrib.drawio', [])
           insertButtonAfterLink(link, attachmentId)
 
     insertButtonAfterLink = (link, attachmentId) ->
-      btn = angular.element("<button class='drawio-btn' style='margin-left: 10px; background: #83eede; color: #000; border: none; border-radius: 4px; cursor: pointer; transition: background 0.3s ease;'>Редактировать в Draw.io</button>")
+      # Edit button
+      editBtn = angular.element("<button class='drawio-btn' style='margin-left: 10px; background: #83eede; color: #000; border: none; border-radius: 4px; cursor: pointer; transition: background 0.3s ease;'>Редактировать в Draw.io</button>")
 
-      btn.on 'mouseenter', -> btn.css('background', '#008aa8')
-      btn.on 'mouseleave', -> btn.css('background', '#83eede')
-      btn.on 'click', -> openDrawioEditor(attachmentId)
+      editBtn.on 'mouseenter', -> editBtn.css('background', '#008aa8')
+      editBtn.on 'mouseleave', -> editBtn.css('background', '#83eede')
+      editBtn.on 'click', -> openDrawioEditor(attachmentId)
 
-      angular.element(link).after(btn)
+      # AI Generate button
+      aiBtn = angular.element("<button class='drawio-btn' style='margin-left: 10px; background: #83eede; color: #000; border: none; border-radius: 4px; cursor: pointer; transition: background 0.3s ease;'>Сгенерировать с помощью ИИ</button>")
+
+      aiBtn.on 'mouseenter', -> aiBtn.css('background', '#008aa8')
+      aiBtn.on 'mouseleave', -> aiBtn.css('background', '#83eede')
+      aiBtn.on 'click', -> showAIPromptModal(attachmentId)
+
+      # Append both buttons
+      angular.element(link).after(editBtn)
+      angular.element(link).after(aiBtn)
+
+    showAIPromptModal = (attachmentId) ->
+      modal = angular.element("""
+        <div id="ai-prompt-modal" style="position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); z-index: 10000; display: flex; justify-content: center; align-items: center;">
+          <div style="background: white; padding: 20px; border-radius: 8px; width: 400px;">
+            <h3 style="margin-top: 0;">Генерация диаграммы с помощью ИИ</h3>
+            <p>Введите описание диаграммы:</p>
+            <textarea id="ai-prompt-input" style="width: 100%; height: 150px; padding: 5px; margin-bottom: 10px;" placeholder="Например: Схема работы интернет-магазина с пользователем, корзиной и платежной системой"></textarea>
+            <div id="loading-spinner" style="display: none; text-align: center; margin: 10px 0;">
+              <div style="border: 4px solid #f3f3f3; border-top: 4px solid #3498db; border-radius: 50%; width: 30px; height: 30px; animation: spin 1s linear infinite; display: inline-block;"></div>
+              <p>Генерация диаграммы...</p>
+            </div>
+            <div style="margin-top: 15px; text-align: right;">
+              <button id="cancel-ai" style="margin-right: 10px;">Отмена</button>
+              <button id="submit-ai">ОК</button>
+            </div>
+          </div>
+        </div>
+      """)
+
+      # Add CSS for spinner animation
+      spinnerStyle = angular.element("""
+        <style>
+          @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+          }
+        </style>
+      """)
+      angular.element($document[0].head).append(spinnerStyle)
+      angular.element($document[0].body).append(modal)
+
+      $document[0].querySelector('#cancel-ai').onclick = -> modal.remove()
+      $document[0].querySelector('#submit-ai').onclick = ->
+        prompt = $document[0].querySelector('#ai-prompt-input').value.trim()
+        if prompt
+          # Show loading spinner
+          angular.element($document[0].querySelector('#loading-spinner')).css('display', 'block')
+          # Disable buttons
+          angular.element($document[0].querySelector('#cancel-ai')).prop('disabled', true)
+          angular.element($document[0].querySelector('#submit-ai')).prop('disabled', true)
+
+          # Send request to generate diagram
+          $http.post("/api/v1/drawio/#{attachmentId}/generate/", { prompt: prompt })
+            .then (res) ->
+              modal.remove()
+              alert("Диаграмма успешно сгенерирована!")
+              $timeout((-> $window.location.reload()), 500)
+            .catch (err) ->
+              modal.remove()
+              alert("Ошибка при генерации диаграммы: " + JSON.stringify(err))
+            .finally ->
+              # Hide loading spinner and enable buttons (just in case)
+              angular.element($document[0].querySelector('#loading-spinner')).css('display', 'none')
+              angular.element($document[0].querySelector('#cancel-ai')).prop('disabled', false)
+              angular.element($document[0].querySelector('#submit-ai')).prop('disabled', false)
+
 
     openDrawioEditor = (attachmentId) ->
       $http.get("/api/v1/drawio/#{attachmentId}/raw/")
@@ -179,9 +245,88 @@ angular.module('taigaContrib.drawio', [])
       .catch (err) ->
         alert("Ошибка при получении projectId: " + JSON.stringify(err))
 
+    # Добавляем кнопку входа через МГТУ
+    addBmstuAuthButton = ->
+      loginForm = $document[0].querySelector('.login-form')
+      return unless loginForm && !loginForm.querySelector('.bmstu-auth-btn')
+
+      separator = angular.element("""
+        <div style="margin: 20px 0; position: relative; text-align: center;">
+          <hr style="border: 0; border-top: 1px solid #ddd;">
+          <span style="position: absolute; top: -10px; left: 50%; transform: translateX(-50%); background: white; padding: 0 10px; color: #999;">
+            или
+          </span>
+        </div>
+      """)
+
+      button = angular.element("""
+        <button class="bmstu-auth-btn"
+                style="background: #005baa; color: white; padding: 10px;
+                       border: none; border-radius: 4px; cursor: pointer;
+                       width: 100%; font-size: 14px; margin-bottom: 20px;
+                       display: flex; align-items: center; justify-content: center;
+                       transition: background 0.3s;">
+          <img src="/plugins/drawio/images/bmstu-logo.png"
+               style="height: 20px; margin-right: 8px;"
+               alt="BMSTU Logo">
+          <span>Войти через МГТУ им. Н.Э. Баумана</span>
+        </button>
+      """)
+
+      button.on 'click', ->
+        $window.location.href = "https://science.iu5.bmstu.ru/sso/authorize?response_type=code&redirect_uri=http://localhost:9000/oauth-callback"
+
+      angular.element(loginForm).append(separator)
+      angular.element(loginForm).append(button)
+
+    # Добавляем стили
+    addStyles = ->
+      style = angular.element("""
+        <style>
+          .bmstu-auth-btn:hover {
+            background: #004a8f !important;
+          }
+        </style>
+      """)
+      angular.element($document[0].head).append(style)
+
+    init = ->
+      addStyles()
+      addBmstuAuthButton()
+      $timeout(checkAuthForm, 500)
+
+    checkAuthForm = ->
+      unless $document[0].querySelector('.bmstu-auth-btn')
+        addBmstuAuthButton()
+        $timeout(checkAuthForm, 500)
 
     $rootScope.$on '$viewContentLoaded', ->
+      init()
       slug = getSlug()
       if slug?
         $timeout((-> fetchAttachments(slug)), 500)
 ]
+
+# Добавляем обработку OAuth callback
+angular.module('taigaContrib.drawio')
+.run(['$location', '$window', '$http', '$timeout', ($location, $window, $http, $timeout) ->
+
+  if $location.path() == '/oauth-callback' && $location.search().code
+    if $window.localStorage.getItem('auth-processed')
+      $window.location.href = '/'
+
+    $http.post('/api/v1/drawio/oauth/', {
+      code: $location.search().code
+      redirect_uri: 'http://localhost:9000/oauth-callback'
+    }).then((response) ->
+      $window.localStorage.setItem('taigaAuthToken', response.data.token)
+      $window.localStorage.setItem('auth-processed', 'true')
+      $timeout(() ->
+          $window.location.href = '/'
+        , 100)
+    ).catch((error) ->
+      console.error('OAuth error:', error)
+      alert('Ошибка авторизации: ' + (error.data?.detail || 'Unknown error'))
+      $window.location.href = '/login'
+    )
+])

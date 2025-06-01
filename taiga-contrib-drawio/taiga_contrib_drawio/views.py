@@ -1,19 +1,24 @@
 import logging
 import os
-import uuid
 import re
+import uuid
+
 import requests
 from django.core.cache import cache
 from django.http import Http404
+from django.utils import timezone
 from django.utils.translation import gettext as _
 from taiga.base import exceptions as exc
 from taiga.base import response
 from taiga.base.api import viewsets
 from taiga.projects.attachments.models import Attachment
+from taiga.users.models import *
+
 from .models import DrawioAttachment
 from .serializers import DrawioAttachmentSerializer
 
 logger = logging.getLogger(__name__)
+
 
 class DrawioViewSet(viewsets.ViewSet):
     """
@@ -230,4 +235,106 @@ class DrawioViewSet(viewsets.ViewSet):
             raise
         except Exception as e:
             logger.exception("Unexpected error in diagram generation")
-            raise exc.BadRequest(_("Unexpected error. Please contact support."))
+            raise exc.BadRequest("Unexpected error. Please contact support.")
+
+    def _get_sso_token(self, code: str) -> str:
+        """Получение токена от SSO сервера"""
+        try:
+            response = requests.post(
+                "https://science.iu5.bmstu.ru/sso/token",
+                params={'code': code},
+                timeout=10
+            )
+            response.raise_for_status()
+            return response.json().get('access_token')
+        except requests.RequestException as e:
+            logger.error(f"SSO token error: {str(e)}")
+            raise exc.BadRequest("SSO authentication failed")
+
+    def _get_sso_user_data(self, token: str) -> dict:
+        """Получение данных пользователя от SSO сервера"""
+        try:
+            response = requests.get(
+                f"https://science.iu5.bmstu.ru/sso/person?access_token={token}"
+            )
+            response.raise_for_status()
+            return response.json()
+        except requests.RequestException as e:
+            logger.error(f"SSO user data error: {str(e)}")
+            raise exc.BadRequest("Failed to fetch user data")
+
+    #TODO: Не работает авторизация в системе taiga.io. OAuth работает, но пользователь не авторизовывается. Нужно сделать по примеру GitHub_OAuth. Или сработает то, что я буду просто класть в localstorage 'token' и 'userinfo'.
+    def oauth_callback(self, request, **kwargs):
+        """
+        OAuth callback endpoint для Drawio плагина
+        POST /api/v1/drawio/oauth/
+        """
+        try:
+            code = request.DATA.get('code')
+        except Exception as e:
+            logger.exception(f"Authorization code is required: {str(e)}")
+            raise exc.BadRequest("Authorization code is required")
+
+        try:
+            # Получаем токен доступа
+            access_token = self._get_sso_token(code)
+
+            # Получаем данные пользователя от SSO
+            user_data = self._get_sso_user_data(access_token)
+            # Получаем модель User из Taiga
+            User = get_user_model_safe()
+
+            # Создаем или обновляем пользователя в Taiga
+            username = user_data.get('username')
+            email = user_data.get('email', f"{username}@bmstu.ru")
+
+            if not username:
+                raise exc.BadRequest("Username not provided by SSO")
+
+            # Создаем или обновляем пользователя
+            user, created = User.objects.update_or_create(
+                username=username,
+                defaults={
+                    'email': email,
+                    'full_name': f"{user_data.get('first_name', '')} {user_data.get('last_name', '')}".strip(),
+                    'is_active': True,
+                    'verified_email': True,
+                    'is_staff': user_data.get('is_staff', False),
+                    'lang': user_data.get('lang', 'ru'),
+                }
+            )
+
+            # Сохраняем auth data для последующего использования
+            auth_data, _ = AuthData.objects.update_or_create(
+                user=user,
+                key='bmstu_sso',
+                defaults={
+                    'value': 'authenticated',  # Вместо полного токена
+                    'extra': {
+                        'sso_data': user_data,
+                        'last_login': timezone.now().isoformat()
+                        # Не сохраняем сам токен
+                    }
+                }
+            )
+
+            logger.info(f"User {'created' if created else 'updated'}: {username}")
+            return response.Ok({
+                'access_token': access_token,
+                'user': {
+                    'id': user.id,
+                    'username': user.username,
+                    'email': user.email,
+                    'full_name': user.full_name,
+                    'is_staff': user.is_staff,
+                    'lang': user.lang
+                },
+                'auth_data': {
+                    'key': auth_data.key,
+                    'created': created
+                }
+            })
+
+        except Exception as e:
+            logger.exception(f"OAuth callback error: {str(e)}")
+            raise exc.BadRequest("Authentication failed")
