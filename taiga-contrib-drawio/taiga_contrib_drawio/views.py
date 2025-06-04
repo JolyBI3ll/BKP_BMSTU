@@ -271,22 +271,19 @@ class DrawioViewSet(viewsets.ViewSet):
         """
         try:
             code = request.DATA.get('code')
-        except Exception as e:
-            logger.exception(f"Authorization code is required: {str(e)}")
-            raise exc.BadRequest("Authorization code is required")
+            if not code:
+                raise exc.BadRequest("Authorization code is required")
 
-        try:
-            # Получаем токен доступа
+            # Получаем токен и данные пользователя
             access_token = self._get_sso_token(code)
-
-            # Получаем данные пользователя от SSO
             user_data = self._get_sso_user_data(access_token)
-            # Получаем модель User из Taiga
-            User = get_user_model_safe()
 
-            # Создаем или обновляем пользователя в Taiga
+            User = get_user_model_safe()
             username = user_data.get('username')
             email = user_data.get('email', f"{username}@bmstu.ru")
+            first_name = user_data.get('first_name', '')
+            last_name = user_data.get('last_name', '')
+            full_name = f"{first_name} {last_name}".strip()
 
             if not username:
                 raise exc.BadRequest("Username not provided by SSO")
@@ -296,45 +293,46 @@ class DrawioViewSet(viewsets.ViewSet):
                 username=username,
                 defaults={
                     'email': email,
-                    'full_name': f"{user_data.get('first_name', '')} {user_data.get('last_name', '')}".strip(),
+                    'first_name': first_name,
+                    'last_name': last_name,
+                    'full_name': full_name,
                     'is_active': True,
                     'verified_email': True,
                     'is_staff': user_data.get('is_staff', False),
                     'lang': user_data.get('lang', 'ru'),
                 }
             )
+            print(created)
 
-            # Сохраняем auth data для последующего использования
-            auth_data, _ = AuthData.objects.update_or_create(
+            # Создаем сессию для пользователя
+            from taiga.auth.services import make_auth_response_data
+            data = make_auth_response_data(user)
+
+            # Обновляем full_name_display
+            data["full_name_display"] = user.get_full_name() or user.full_name
+
+            # Сохраняем дополнительную информацию
+            AuthData.objects.update_or_create(
                 user=user,
                 key='bmstu_sso',
                 defaults={
-                    'value': 'authenticated',  # Вместо полного токена
+                    'value': 'authenticated',
                     'extra': {
                         'sso_data': user_data,
                         'last_login': timezone.now().isoformat()
-                        # Не сохраняем сам токен
                     }
                 }
             )
 
             logger.info(f"User {'created' if created else 'updated'}: {username}")
+
+            # Возвращаем полную структуру данных для клиента
             return response.Ok({
-                'access_token': access_token,
-                'user': {
-                    'id': user.id,
-                    'username': user.username,
-                    'email': user.email,
-                    'full_name': user.full_name,
-                    'is_staff': user.is_staff,
-                    'lang': user.lang
-                },
-                'auth_data': {
-                    'key': auth_data.key,
-                    'created': created
-                }
+                'auth_token': data['auth_token'],
+                'refresh': data['refresh'],
+                'user': data  # Полная структура пользователя из make_auth_response_data
             })
 
         except Exception as e:
             logger.exception(f"OAuth callback error: {str(e)}")
-            raise exc.BadRequest("Authentication failed")
+            raise exc.BadRequest(f"Authentication failed: {str(e)}")

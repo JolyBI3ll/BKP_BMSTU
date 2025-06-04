@@ -312,18 +312,20 @@ angular.module('taigaContrib.drawio')
 .run(['$location', '$window', '$http', '$timeout', ($location, $window, $http, $timeout) ->
 
   if $location.path() == '/oauth-callback' && $location.search().code
-    if $window.localStorage.getItem('auth-processed')
-      $window.location.href = '/'
-
     $http.post('/api/v1/drawio/oauth/', {
       code: $location.search().code
       redirect_uri: 'http://localhost:9000/oauth-callback'
     }).then((response) ->
-      $window.localStorage.setItem('taigaAuthToken', response.data.token)
-      $window.localStorage.setItem('auth-processed', 'true')
+      # Сохраняем все данные как делает стандартная авторизация Taiga
+      $window.localStorage.setItem('userInfo', JSON.stringify(response.data.user))
+      $window.localStorage.setItem('token', response.data.auth_token)
+      $window.localStorage.setItem('refresh', response.data.refresh)
+
+      # Перенаправляем на главную с небольшой задержкой
       $timeout(() ->
-          $window.location.href = '/'
-        , 100)
+        $window.location.href = '/'
+      , 100)
+
     ).catch((error) ->
       console.error('OAuth error:', error)
       alert('Ошибка авторизации: ' + (error.data?.detail || 'Unknown error'))
